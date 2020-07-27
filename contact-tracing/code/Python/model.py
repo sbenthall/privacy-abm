@@ -1,11 +1,27 @@
 ## python
 
 from collections import defaultdict
+import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import random
 
 ## 0. Initialize the model
+
+def initialize_weights(g, params, how='constant'):
+    if how == 'constant':
+        nx.set_edge_attributes(g, params['W'], name = 'w')
+    else:
+        pass
+
+def initialize_adopters(g, params, how='bernoulli'):
+    if how == 'bernoulli':
+        nx.set_node_attributes(
+            g,
+            {x : np.random.random() < params['A'] for x in g.nodes()},
+            name = 'adopter')
+    else:
+        pass
 
 def initialize_state(g):
     nx.set_node_attributes(
@@ -236,3 +252,27 @@ def loop(params, g, history, t, copy = True):
     
     return g, history
 
+
+### Visualization
+
+green_cmap = plt.get_cmap('Greens')
+orange_cmap = plt.get_cmap('Oranges')
+
+def node_colors(g):
+    node_color = [
+        orange_cmap(n[1]['quarantined-at'])
+        if n[1]['quarantined']
+        else green_cmap(n[1]['recovered-at'])
+        if n[1]['epi-state'] == 'Recovered'
+        else 'r'
+        if n[1]['epi-state'] == 'Infectious'
+        else 'y'
+        if n[1]['epi-state'] == 'Exposed'
+        else 'c'
+        if n[1]['epi-state'] == 'Susceptible' and n[1]['adopter']
+        else 'b'
+        for n
+        in g.nodes(data=True)
+    ]
+
+    return node_color
