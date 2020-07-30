@@ -219,6 +219,13 @@ def clear_testing(g, copy=True):
 
 ### PUTTING IT ALL TOGETHER
 
+def get_infected(g):
+    return [n
+            for n 
+            in g.nodes(data=True) 
+            if n[1]['epi-state'] == 'Infectious'] 
+
+
 def loop(params, g, history, t, copy = True):
     if copy:
         g = g.copy()
@@ -251,6 +258,34 @@ def loop(params, g, history, t, copy = True):
     g = clear_testing(g, copy = False)
     
     return g, history
+
+
+### Running an experiment
+
+
+def simulate_sample(g, params, runs, time_limit = float("inf")):
+
+    records = []
+
+    for i in range(runs):
+        if i % 100 == 0:
+            print("Trial %d" % (i))
+
+        t = 0
+        g_live = g.copy()
+        history = {}
+        
+        while len(get_infected(g_live)) > 0 and t < time_limit:
+            if t != 0 and t % 100 == 0:
+                print("Trial %d hits time step %d" % (i,t))
+
+            g_live, history = loop(params, g_live, history, t)
+
+            t = t + 1
+
+        records.append((t, g_live.copy(), history.copy()))
+
+    return records
 
 
 ### Visualization
