@@ -55,7 +55,11 @@ def initialize_epi_states(g):
         }
     )
 
-
+def initialize(g,params):
+    initialize_weights(g, params)
+    initialize_adopters(g, params)
+    initialize_state(g)
+    initialize_epi_states(g)
 
 ## 1. Choose activated edges
 
@@ -223,8 +227,7 @@ def get_infected(g):
     return [n
             for n 
             in g.nodes(data=True) 
-            if n[1]['epi-state'] == 'Infectious'] 
-
+            if n[1]['epi-state'] == 'Infectious']
 
 def loop(params, g, history, t, copy = True):
     if copy:
@@ -273,6 +276,7 @@ def simulate_sample(g, params, runs, time_limit = float("inf")):
 
         t = 0
         g_live = g.copy()
+        initialize(g_live,params)
         history = {}
         
         while len(get_infected(g_live)) > 0 and t < time_limit:
@@ -287,6 +291,26 @@ def simulate_sample(g, params, runs, time_limit = float("inf")):
 
     return records
 
+def experiment(g, conditions : dict, runs):
+    results = {}
+
+    for case in conditions:
+        print(case)
+        results[case] = simulate_sample(
+            g,
+            conditions[case],
+            runs
+        )
+
+    return results
+
+### Measuring output
+
+def susceptible(g):
+    return [n
+            for n 
+            in g.nodes(data=True) 
+            if n[1]['epi-state'] == 'Susceptible']
 
 ### Visualization
 
