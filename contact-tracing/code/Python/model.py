@@ -8,10 +8,26 @@ import random
 
 ## 0. Initialize the model
 
-def initialize_weights(g, params, how='constant'):
-    if how == 'constant':
+def initialize_weights(g, params):
+    if type(params['W']) is float:
         nx.set_edge_attributes(g, params['W'], name = 'w')
     else:
+        print("No case found for Weight type.")
+        pass
+
+def initialize_tracing_probability(g, params):
+    if type(params['C']) is float:
+        nx.set_edge_attributes(g, params['C'], name = 'c')
+    elif callable(params['C']):
+        nx.set_edge_attributes(g,
+                               {
+                                   (e[0], e[1]) : params['C'](g, e)
+                                   for e
+                                   in g.edges(data = True)
+                               },
+                               name = 'c')
+    else:
+        print("No case found for traCing probability type.")
         pass
 
 def initialize_adopters(g, params, how='bernoulli'):
@@ -57,6 +73,7 @@ def initialize_epi_states(g):
 
 def initialize(g,params):
     initialize_weights(g, params)
+    initialize_tracing_probability(g, params)
     initialize_adopters(g, params)
     initialize_state(g)
     initialize_epi_states(g)
@@ -88,8 +105,9 @@ def traced_contacts(g, active_edges, history, t):
     
     for edge in active_edges:
         if adoption(g, edge):
-            contact_history[edge[0]].add(edge[1])
-            contact_history[edge[1]].add(edge[0])
+            if np.random.random() <= edge[2]['c']:
+                contact_history[edge[0]].add(edge[1])
+                contact_history[edge[1]].add(edge[0])
     
     history[t] = contact_history
 
@@ -317,6 +335,8 @@ def susceptible(g):
 green_cmap = plt.get_cmap('Greens')
 orange_cmap = plt.get_cmap('Oranges')
 
+grey_cmap = plt.get_cmap('Greys')
+
 def node_colors(g):
     node_color = [
         orange_cmap(n[1]['quarantined-at'])
@@ -335,3 +355,12 @@ def node_colors(g):
     ]
 
     return node_color
+
+def edge_colors(g):
+    edge_color = [
+        (e[2]['w'], e[2]['c'], 1 - e[2]['w'] * e[2]['c'] )
+        for e
+        in g.edges(data=True)
+    ]
+
+    return edge_color
