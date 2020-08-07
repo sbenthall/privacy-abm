@@ -6,11 +6,36 @@ import networkx as nx
 import numpy as np
 import random
 
+
+## Setup utilities
+
+def expected_one_per_edge(g, e):
+    return len(g.nodes()) / len(g.edges())
+
+def local_density(g, e):
+    u, v, d = e
+    
+    u_neighbors = set(nx.neighbors(g, u))
+    v_neighbors = set(nx.neighbors(g, v))
+    
+    common_neighbors = set(u_neighbors).intersection(v_neighbors)
+    all_neighbors = set(u_neighbors).union(v_neighbors)
+    
+    return len(common_neighbors) / len(all_neighbors)
+
 ## 0. Initialize the model
 
 def initialize_weights(g, params):
     if type(params['W']) is float:
         nx.set_edge_attributes(g, params['W'], name = 'w')
+    elif callable(params['W']):
+        nx.set_edge_attributes(g,
+                               {
+                                   (e[0], e[1]) : params['W'](g, e)
+                                   for e
+                                   in g.edges(data = True)
+                               },
+                               name = 'w')
     else:
         print("No case found for Weight type.")
         pass
@@ -296,20 +321,45 @@ def simulate_sample(g, params, runs, time_limit = float("inf")):
         g_live = g.copy()
         initialize(g_live,params)
         history = {}
+
+        s_count = []
         
         while len(get_infected(g_live)) > 0 and t < time_limit:
             if t != 0 and t % 100 == 0:
                 print("Trial %d hits time step %d" % (i,t))
 
+            s_count.append(len(susceptible(g_live)))
+
             g_live, history = loop(params, g_live, history, t)
 
             t = t + 1
 
-        records.append((t, g_live.copy(), history.copy()))
+        records.append((t, g_live.copy(), history.copy(), s_count))
 
     return records
 
-def experiment(g, conditions : dict, runs):
+def experiment(generator, conditions : dict, runs):
+    """
+    generator: takes keyword arguments and returns a graph and params dict
+    conditions: a dictionary of dictionaries, with the keyword arguments
+    runs: the number of runs per condition
+    """
+    results = {}
+
+    for case in conditions:
+
+        g, params = generator(**conditions[case])
+
+        print(case)
+        results[case] = simulate_sample(
+            g,
+            params,
+            runs
+        )
+
+    return results
+
+def experiment_on_graph(g, conditions : dict, runs):
     results = {}
 
     for case in conditions:
