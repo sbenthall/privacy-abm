@@ -2,15 +2,45 @@
 
 from collections import defaultdict
 import matplotlib.pyplot as plt
+import multiprocessing
 import networkx as nx
 import numpy as np
+import pandas as pd
 import random
+import statistics
+
+## math utilities
+
+def inflection_point(x, y, rising = False):
+    """
+    Returns the x, y values of point where first derivative is minimum.
+    This approximates the inflection point.
+    """
+
+    df1 = np.gradient(y, x, edge_order = 2)
+
+    df2 = np.gradient(df1, x, edge_order = 2)
+
+    ix = np.argsort(df1) ## lowest first
+
+    i = -1 if rising else 0
+
+    return (x[ix[i]],y[ix[i]])
 
 
 ## Setup utilities
 
 def expected_one_per_edge(g, e):
     return len(g.nodes()) / len(g.edges())
+
+def q_knockout(q):
+    def knockout(g, e):
+        if abs(e[0] - e[1]) > g.graph['K'] / 2:
+            return 1.0 if np.random.random() < q else 0.0
+        else:
+            return 1.0
+
+    return knockout
 
 def local_density(g, e):
     u, v, d = e
@@ -114,10 +144,10 @@ def active_edges(g, weight_attr = 'w'):
         edge
         for edge
         in g.edges(data=True)
-        if not quarantined(g, edge)
-        and np.random.random() <= edge[2][weight_attr]
+        if np.random.random() <= edge[2][weight_attr]
+        and not quarantined(g, edge)
     ]
-    
+
 
 ## 2.a. Trace along active edge
 
@@ -126,25 +156,31 @@ def adoption(g, edge):
     return g.nodes[edge[0]]['adopter'] and g.nodes[edge[1]]['adopter']
 
 def traced_contacts(g, active_edges, history, t):
-    contact_history = defaultdict(lambda : set())
-    
+    contact_history = dict()
+
     for edge in active_edges:
         if adoption(g, edge):
             if np.random.random() <= edge[2]['c']:
+                if edge[0] not in contact_history:
+                    contact_history[edge[0]] = set()
+
+                if edge[1] not in contact_history:
+                    contact_history[edge[1]] = set()
+
                 contact_history[edge[0]].add(edge[1])
                 contact_history[edge[1]].add(edge[0])
-    
+
     history[t] = contact_history
 
     return contact_history
-    
+
 
 ## 2.a. Infections along active edge
     
 def infections(g, active_edges, beta_hat = .5, copy = True):
     if copy:
         g = g.copy()
-        
+
     for edge in active_edges:
         if g.nodes[edge[0]]['epi-state'] == 'Infectious' \
         and g.nodes[edge[1]]['epi-state'] == 'Susceptible':
@@ -164,7 +200,7 @@ def infections(g, active_edges, beta_hat = .5, copy = True):
                      {'epi-state' : 'Exposed'}
                     }
                 )
-    
+
     return g
 
 
@@ -193,7 +229,7 @@ def progress_disease(g, t, alpha = .25, gamma = .1, copy = True):
                         'recovered-at' : t
                     }}
                 )
-        
+
     return g
 
 ## 4.a Become symptomatic
@@ -201,7 +237,7 @@ def progress_disease(g, t, alpha = .25, gamma = .1, copy = True):
 def symptomaticity(g, history, t, zeta = .1, limit = 10, copy = True):
     if copy:
         g = g.copy()
-    
+
     for node, data in g.nodes(data=True):
         if data['epi-state'] == 'Infectious':
             if np.random.random() < zeta:
@@ -212,7 +248,7 @@ def symptomaticity(g, history, t, zeta = .1, limit = 10, copy = True):
                     }}
                 )
                 g = get_tested(node, g, history, t, copy = copy)
-        
+
     return g
 
 
@@ -222,27 +258,28 @@ def symptomaticity(g, history, t, zeta = .1, limit = 10, copy = True):
 def get_tested(node, g, history, t, limit = 10, copy = True):
     if g.nodes[node]['tested']:
         return g
-    
+
     if copy:
         g = g.copy()
-    
+
     g.nodes[node]['tested'] = True
     epi_state = g.nodes[node]['epi-state']
-    
+
     if epi_state == 'Exposed' or epi_state == 'Infectious':
         ## TESTING POSITIVE!
         g.nodes[node]['quarantined'] = True
         g.nodes[node]['quarantined-at'] = t
 
         for t_past in range(max(0, t - limit), t + 1):
-            if node in history[t_past]:
-                for contact in history[t_past][node]:
-                    g = get_tested(contact,
-                                   g,
-                                   history,
-                                   t,
-                                   copy = copy)
-        
+            if t_past in history:
+                if node in history[t_past]:
+                    for contact in history[t_past][node]:
+                        g = get_tested(contact,
+                                       g,
+                                       history,
+                                       t,
+                                       copy = copy)
+
         return g
     else:
         ## negative. Do nothing.
@@ -254,13 +291,13 @@ def get_tested(node, g, history, t, limit = 10, copy = True):
 def clear_testing(g, copy=True):
     if copy:
         g = g.copy()
-        
+
     nx.set_node_attributes(
         g,
         False,
         name = 'tested'
     )
-    
+
     return g
 
 
@@ -276,7 +313,7 @@ def loop(params, g, history, t, copy = True):
     if copy:
         g = g.copy()
         history = history.copy()
-        
+
     ae = active_edges(g)
     tc = traced_contacts(g,
                          ae,
@@ -293,7 +330,7 @@ def loop(params, g, history, t, copy = True):
                          alpha = params['alpha'],
                          gamma = params['gamma'],
                          copy = False)
-    
+
     g = symptomaticity(g,
                        history,
                        t,
@@ -302,53 +339,74 @@ def loop(params, g, history, t, copy = True):
                        copy = False)
 
     g = clear_testing(g, copy = False)
-    
+
     return g, history
 
 
 ### Running an experiment
 
+def simulation_process(g, params, i, time_limit = float("inf")):
+    if i % 100 == 0:
+        print("Trial %d" % (i))
+
+    t = 0
+    g_live = g.copy()
+    initialize(g_live,params)
+    history = {}
+
+    s_count = []
+
+    while len(get_infected(g_live)) > 0 and t < time_limit:
+        if t != 0 and t % 100 == 0:
+            print("Trial %d hits time step %d" % (i,t))
+
+        s_count.append(len(susceptible(g_live)))
+
+        g_live, history = loop(params, g_live, history, t)
+
+        t = t + 1
+
+    return data_from_result(
+        t,
+        params,
+        g_live.copy(),
+        history.copy(),
+        s_count
+    )
 
 def simulate_sample(g, params, runs, time_limit = float("inf")):
 
     records = []
 
-    for i in range(runs):
-        if i % 100 == 0:
-            print("Trial %d" % (i))
+    inputs = zip(
+        [g] * runs,
+        [params] * runs,
+        range(runs)
+    )
 
-        t = 0
-        g_live = g.copy()
-        initialize(g_live,params)
-        history = {}
-
-        s_count = []
-        
-        while len(get_infected(g_live)) > 0 and t < time_limit:
-            if t != 0 and t % 100 == 0:
-                print("Trial %d hits time step %d" % (i,t))
-
-            s_count.append(len(susceptible(g_live)))
-
-            g_live, history = loop(params, g_live, history, t)
-
-            t = t + 1
-
-        records.append((t, g_live.copy(), history.copy(), s_count))
+    #pool = multiprocessing.pool.Pool()
+    #records = pool.starmap(simulation_process, inputs)
+    records = [simulation_process(*i) for i in inputs]
 
     return records
 
-def experiment(generator, conditions : dict, runs):
+def experiment(generator, base_params, conditions : dict, runs):
     """
     generator: takes keyword arguments and returns a graph and params dict
     conditions: a dictionary of dictionaries, with the keyword arguments
     runs: the number of runs per condition
+
+    Returns:
+    - dataframe!
     """
     results = {}
 
     for case in conditions:
 
-        g, params = generator(**conditions[case])
+        params = base_params.copy()
+        params.update(conditions[case])
+
+        g, params = generator(**params)
 
         print(case)
         results[case] = simulate_sample(
@@ -370,17 +428,74 @@ def experiment_on_graph(g, conditions : dict, runs):
             runs
         )
 
-    return results
+    df = data_from_all_results(results)
+
+    return df
+
+
+### Data extraction
+
+def data_from_result(
+        t,
+        params,
+        g,
+        history,
+        s_count
+):
+    return {
+        'time' : t,
+        **params,
+        **g.graph,
+        "s_final" : s_count[-1]
+    }
+
+def data_from_results(results, case):
+    return [{**d,
+             **{
+                 "case" : case,
+                 "infected_ratio" : (d['N'] - d['s_final']) / d['N']
+             }}
+            for d
+            in results[case]]
+
+def data_from_all_results(results):
+    return pd.DataFrame([r for case in results for r in data_from_result(results, case)])
+
 
 ### Measuring output
 
 def susceptible(g):
     return [n
-            for n 
+            for n
             in g.nodes(data=True) 
             if n[1]['epi-state'] == 'Susceptible']
 
-### Visualization
+def n_infected(g):
+    return len(g.nodes()) - len(susceptible(g))
+
+### THIS THIS BROKEN NOW
+### This will need to be rewritten
+def average_over_time(records, infected = False):
+    N = len(records[0][2].nodes()) # Assumes constant N
+
+    s_records = [r[4] for r in records]
+
+    m = max([len(d) for d in s_records])
+
+    s_plus = [d + [d[len(d)-1]] * (m - len(d)) for d in s_records]
+
+    means = np.array([
+        statistics.mean([d[i] for d in s_plus])
+        for i
+        in range(m)
+    ])
+
+    if infected:
+        return N - means
+    else:
+        return means
+
+### Graph Visualization
 
 green_cmap = plt.get_cmap('Greens')
 orange_cmap = plt.get_cmap('Oranges')
