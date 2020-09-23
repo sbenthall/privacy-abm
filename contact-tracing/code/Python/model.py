@@ -30,6 +30,16 @@ def inflection_point(x, y, rising = False):
 
 ## Setup utilities
 
+def watts_strogatz_case_p_star(N, K, p_star, **kwargs):
+
+    g = nx.watts_strogatz_graph(N, K, p_star)
+
+    g.graph['N'] = N
+    g.graph['K'] = K
+    g.graph['p'] = p_star
+
+    return g, kwargs
+
 def expected_one_per_edge(g, e):
     return len(g.nodes()) / len(g.edges())
 
