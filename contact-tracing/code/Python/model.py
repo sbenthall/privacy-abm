@@ -46,6 +46,7 @@ def expected_one_per_edge(g, e):
 
 def q_knockout(q):
     def knockout(g, e):
+        # distance between u and v > size of original neighborhood / 2
         if abs(e[0] - e[1]) > g.graph['K'] / 2:
             return 1.0 if np.random.random() < q else 0.0
         else:
@@ -371,19 +372,16 @@ def loop(params, g, history, t, copy = True):
 
 ### Running an experiment
 
-def simulation_process(g, params, i, time_limit = float("inf")):
-    if i % 100 == 0:
-        print("Trial %d" % (i))
-
+def simulation_process(g_live, params, i, time_limit = float("inf")):
     t = 0
-    g_live = g.copy()
-    initialize(g_live,params)
+    #g_live = g.copy()
+    #initialize(g_live,params)
     history = {}
 
     s_count = []
 
     while len(get_infected(g_live)) > 0 and t < time_limit:
-        if t != 0 and t % 100 == 0:
+        if t != 0 and t % len(g_live.nodes()) / 100 == 0:
             print("Trial %d hits time step %d" % (i,t))
 
         s_count.append(len(susceptible(g_live)))
