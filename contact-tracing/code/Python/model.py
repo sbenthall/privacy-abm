@@ -54,13 +54,13 @@ def q_knockout(q):
 
 def local_density(g, e):
     u, v, d = e
-    
+
     u_neighbors = set(nx.neighbors(g, u))
     v_neighbors = set(nx.neighbors(g, v))
-    
+
     common_neighbors = set(u_neighbors).intersection(v_neighbors)
     all_neighbors = set(u_neighbors).union(v_neighbors)
-    
+
     return len(common_neighbors) / len(all_neighbors)
 
 ## 0. Initialize the model
@@ -186,7 +186,7 @@ def traced_contacts(g, active_edges, history, t):
 
 
 ## 2.a. Infections along active edge
-    
+
 def infections(g, active_edges, beta_hat = .5, copy = True):
     if copy:
         g = g.copy()
@@ -219,7 +219,7 @@ def infections(g, active_edges, beta_hat = .5, copy = True):
 def progress_disease(g, t, alpha = .25, gamma = .1, copy = True):
     if copy:
         g = g.copy()
-    
+
     for node, data in g.nodes(data=True):
         if data['epi-state'] == 'Exposed':
             if np.random.random() < alpha:
