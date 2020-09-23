@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import random
 import statistics
+import time
 
 ## math utilities
 
@@ -399,19 +400,43 @@ def simulation_process(g, params, i, time_limit = float("inf")):
         s_count
     )
 
+def initialize_graph(g, params):
+    g_live = g.copy()
+
+    initialize(g_live, params)
+
+    return g_live
+
 def simulate_sample(g, params, runs, time_limit = float("inf")):
 
     records = []
 
+    tic = time.perf_counter()
+    print("Initializing input graphs")
+
+    clean_params = params.copy()
+
+    # clear these out to support multiprocessing
+    for k in clean_params:
+        if callable(clean_params[k]):
+            clean_params[k] = None
+
     inputs = zip(
-        [g] * runs,
-        [params] * runs,
+        [initialize_graph(g, params) for i in range(runs)],
+        [clean_params] * runs,
         range(runs)
     )
 
-    #pool = multiprocessing.pool.Pool()
-    #records = pool.starmap(simulation_process, inputs)
-    records = [simulation_process(*i) for i in inputs]
+    toc = time.perf_counter()
+    print(f"graphs prepared in {toc - tic}")
+
+    pooling = True
+
+    if pooling:
+        pool = multiprocessing.Pool()
+        records = pool.starmap(simulation_process, inputs)
+    else:
+        records = [simulation_process(*i) for i in inputs]
 
     return records
 
@@ -433,12 +458,15 @@ def experiment(generator, base_params, conditions : dict, runs):
 
         g, params = generator(**params)
 
-        print(case)
+        print(f"Starting {case}")
+        tic = time.perf_counter()
         results[case] = simulate_sample(
             g,
             params,
             runs
         )
+        toc = time.perf_counter()
+        print(f"Finished {case} in {toc - tic}")
 
     return results
 
@@ -499,7 +527,7 @@ def data_from_results(results, case):
             in results[case]]
 
 def data_from_all_results(results):
-    return pd.DataFrame([r for case in results for r in data_from_result(results, case)])
+    return pd.DataFrame([r for case in results for r in data_from_results(results, case)])
 
 
 ### Measuring output
