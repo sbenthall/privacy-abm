@@ -201,6 +201,13 @@ def infections(g, active_edges, beta_hat = .5, copy = True):
                      {'epi-state' : 'Exposed'}
                     }
                 )
+
+                nx.set_edge_attributes(
+                    g,
+                    { (edge[0], edge[1]) :
+                      {'route' : True}
+                    }
+                )
         elif g.nodes[edge[1]]['epi-state'] == 'Infectious' \
         and g.nodes[edge[0]]['epi-state'] == 'Susceptible':
             if np.random.random() <= beta_hat:
@@ -210,6 +217,14 @@ def infections(g, active_edges, beta_hat = .5, copy = True):
                      {'epi-state' : 'Exposed'}
                     }
                 )
+
+                nx.set_edge_attributes(
+                    g,
+                    { (edge[0], edge[1]) :
+                      {'route' : True}
+                    }
+                )
+
 
     return g
 
@@ -445,6 +460,19 @@ def experiment_on_graph(g, conditions : dict, runs):
 
 ### Data extraction
 
+def route_adjacency_ratio(g):
+    edges = g.edges(data=True)
+
+    route_edges = [e for e in edges if 'route' in e[2]]
+
+    adjacent_edges = [e for e in route_edges
+                      if (abs(e[0] - e[1]) % g.graph['N']) <= (g.graph['K'] / 2)]
+
+    if len(route_edges) > 0:
+        return float(len(adjacent_edges)) / len(route_edges)
+    else:
+        None
+
 def data_from_result(
         t,
         params,
@@ -452,11 +480,13 @@ def data_from_result(
         history,
         s_count
 ):
+
     return {
         'time' : t,
         **params,
         **g.graph,
-        "s_final" : s_count[-1]
+        "s_final" : s_count[-1],
+        "route_adjacent_ratio" : route_adjacency_ratio(g)
     }
 
 def data_from_results(results, case):
