@@ -44,10 +44,16 @@ def watts_strogatz_case_p_star(N, K, p_star, **kwargs):
 def expected_one_per_edge(g, e):
     return len(g.nodes()) / len(g.edges())
 
+def circle_distance(e, N):
+    return min(
+        abs(e[0] - e[1]) % N,
+        abs(e[1] - e[0] % N)
+    )
+
 def q_knockout(q):
     def knockout(g, e):
         # distance between u and v > size of original neighborhood / 2
-        if abs(e[0] - e[1]) > g.graph['K'] / 2:
+        if circle_distance(e, g.graph['N']) > g.graph['K'] / 2:
             return 1.0 if np.random.random() < q else 0.0
         else:
             return 1.0
@@ -433,6 +439,7 @@ def simulate_sample(g, params, runs, time_limit = float("inf")):
     if pooling:
         pool = multiprocessing.Pool()
         records = pool.starmap(simulation_process, inputs)
+        pool.close()
     else:
         records = [simulation_process(*i) for i in inputs]
 
@@ -499,6 +506,21 @@ def route_adjacency_ratio(g):
     else:
         None
 
+def traced_edges(g):
+    edges = g.edges(data=True)
+
+    te = 0
+    te_d = 0
+
+    for e in edges:
+        if adoption(g, e) and g.edges[(e[0],e[1])]['c'] > 0.5:
+            te += 1
+
+            if circle_distance(e, g.graph['N']) > g.graph['K'] / 2:
+                te_d += 1
+
+    return te, te_d
+
 def data_from_result(
         t,
         params,
@@ -506,13 +528,16 @@ def data_from_result(
         history,
         s_count
 ):
+    te, te_d = traced_edges(g)
 
     return {
         'time' : t,
         **params,
         **g.graph,
         "s_final" : s_count[-1],
-        "route_adjacent_ratio" : route_adjacency_ratio(g)
+        "route_adjacent_ratio" : route_adjacency_ratio(g),
+        "traced_edges" : te,
+        "traced_edges_distant" : te_d
     }
 
 def data_from_results(results, case):
