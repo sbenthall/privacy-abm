@@ -7,6 +7,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import random
+import seaborn as sns
 import statistics
 import time
 
@@ -50,6 +51,32 @@ def circle_distance(e, N):
         abs(e[1] - e[0] % N)
     )
 
+def latitude(i, N):
+    dist_from_north_pole = min(
+        i,
+        abs(N / 4 - i) # 1/4 here is just rotating, for the drawing
+    )
+    return N / 4 - dist_from_north_pole
+
+def hemisphere_adoption(mu, delta):
+    '''
+    Adopt with mean rate mu
+    + delta if in the northern hemisphere
+    - delta if in the southern hemisphere
+    '''
+    def hemisphere(g, i):
+        N = len(g.nodes())
+        i = i[0]
+        # distance between u and v > size of original neighborhood / 2
+        if latitude(i, N) > 0:
+            rate = mu + delta
+        else:
+            rate = mu - delta
+
+        return 1 if np.random.random() < rate else 0
+
+    return hemisphere
+
 def q_knockout(q):
     def knockout(g, e):
         # distance between u and v > size of original neighborhood / 2
@@ -57,6 +84,20 @@ def q_knockout(q):
             return 1.0 if np.random.random() < q else 0.0
         else:
             return 1.0
+
+    return knockout
+
+def qr_knockout(q, r):
+    '''
+    Allows q of distant edges and r of close edges
+    to be be traced (if they are adopted).
+    '''
+    def knockout(g, e):
+        # distance between u and v > size of original neighborhood / 2
+        if circle_distance(e, g.graph['N']) > g.graph['K'] / 2:
+            return 1.0 if np.random.random() < q else 0.0
+        else:
+            return 1.0 if np.random.random() < r else 0.0
 
     return knockout
 
@@ -104,12 +145,22 @@ def initialize_tracing_probability(g, params):
         pass
 
 def initialize_adopters(g, params, how='bernoulli'):
-    if how == 'bernoulli':
+    if type(params['A']) is float:
         nx.set_node_attributes(
             g,
             {x : np.random.random() < params['A'] for x in g.nodes()},
             name = 'adopter')
+    elif callable(params['A']):
+        #import pdb; pdb.set_trace()
+        nx.set_node_attributes(g,
+                               {
+                                   i[0] : params['A'](g, i)
+                                   for i
+                                   in g.nodes(data = True)
+                               },
+                               name = 'adopter')
     else:
+        print("No case found for Adoption rate.")
         pass
 
 def initialize_state(g):
@@ -620,3 +671,37 @@ def edge_colors(g):
     ]
 
     return edge_color
+
+
+def binned_heatmap(
+        data,
+        x = '',
+        y = '',
+        z = '',
+        x_base = 10,
+        y_base = 10,
+        render = True
+):
+    '''
+    Given some data, and column labels x, y, and z,
+    and bases x_base and y_base ...
+
+    ... create a heatmap of the average value of y
+    over x and y binned by x_base and y_base respectively.
+    '''
+    d = data.copy()
+
+    d['x_bin'] = d[x].apply(lambda x : x_base * round(float(x) / x_base))
+    d['y_bin'] = d[y].apply(lambda y : y_base * round(float(y) / y_base))
+
+    dg = d.groupby(['x_bin','y_bin'])[z].mean().reset_index()
+    xyz = dg.pivot('y_bin','x_bin',z)
+
+    if render:
+        g = sns.heatmap(
+            xyz
+        )
+    else:
+        g = None
+
+    return g, xyz, (d['x_bin'], d['y_bin'])
