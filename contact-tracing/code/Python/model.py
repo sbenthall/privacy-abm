@@ -1,6 +1,7 @@
 ## python
 
 from collections import defaultdict
+import math
 import matplotlib.pyplot as plt
 import multiprocessing
 import networkx as nx
@@ -10,6 +11,38 @@ import random
 import seaborn as sns
 import statistics
 import time
+
+## graph utilities
+
+def grid_r(N, M, p):
+    '''
+    N - height
+    M - width
+    p - rewiring rate
+    '''
+    g = nx.grid_2d_graph(N, M, periodic=True, create_using=None)
+
+    g.graph['N'] = N
+    g.graph['M'] = M
+    g.graph['p'] = p
+
+    for e in g.edges:
+        if random.random() <= p:
+            g.remove_edge(e[0],e[1])
+            v = random.choice(list(g.nodes()))
+            g.add_edge(e[0], v)
+
+    return g
+
+def grid_pos(g):
+    dummy_g = nx.grid_2d_graph(
+        g.graph['N'],
+        g.graph['M'],
+        periodic=False,
+        create_using=None
+    )
+    pos = nx.spectral_layout(dummy_g)
+    return pos
 
 ## math utilities
 
@@ -51,6 +84,16 @@ def circle_distance(e, N):
         abs(e[1] - e[0] % N)
     )
 
+def square_distance(e, N, M):
+    x = circle_distance(
+        (e[0][0], e[1][0]), N
+    )
+    y = circle_distance(
+        (e[0][1], e[1][1]), M
+    )
+
+    return math.sqrt(x ** 2 + y ** 2)
+
 def latitude(i, N):
     dist_from_north_pole = min(
         i,
@@ -68,7 +111,8 @@ def hemisphere_adoption(mu, delta):
         N = len(g.nodes())
         i = i[0]
         # distance between u and v > size of original neighborhood / 2
-        if latitude(i, N) > 0:
+        if g.nodes[i]['group'] == 0:
+        #if latitude(i, N) > 0:
             rate = mu + delta
         else:
             rate = mu - delta
@@ -163,6 +207,16 @@ def initialize_adopters(g, params, how='bernoulli'):
         print("No case found for Adoption rate.")
         pass
 
+    # DEFAULT group assignment: if nodes are not in a group,
+    # group them by whether they have adopted
+
+    if 'group' not in g.nodes(0):
+        nx.set_node_attributes(
+            g,
+            {x[0] : 1 if x[1]['adopter'] else 0 for x in g.nodes(data=True)},
+            name = 'group'
+        )
+
 def initialize_state(g):
     nx.set_node_attributes(
         g,
@@ -190,7 +244,8 @@ def initialize_epi_states(g):
         {
             random.choice(list(g.nodes())) :
             {
-                'epi-state' : 'Infectious'
+                'epi-state' : 'Infectious',
+                'infected-at' : 0
             }
         }
     )
@@ -246,7 +301,7 @@ def traced_contacts(g, active_edges, history, t):
 
 ## 2.a. Infections along active edge
 
-def infections(g, active_edges, beta_hat = .5, copy = True):
+def infections(g, t, active_edges, beta_hat = .5, copy = True):
     if copy:
         g = g.copy()
 
@@ -257,7 +312,10 @@ def infections(g, active_edges, beta_hat = .5, copy = True):
                 nx.set_node_attributes(
                     g,
                     { edge[1] :
-                     {'epi-state' : 'Exposed'}
+                     {
+                         'epi-state' : 'Exposed',
+                         'exposed-at' : t
+                     }
                     }
                 )
 
@@ -300,7 +358,8 @@ def progress_disease(g, t, alpha = .25, gamma = .1, copy = True):
                 nx.set_node_attributes(
                     g,
                     {node : {
-                        'epi-state' : 'Infectious'
+                        'epi-state' : 'Infectious',
+                        'infectious-at' : t
                     }}
                 )
 
@@ -389,8 +448,8 @@ def clear_testing(g, copy=True):
 
 def get_infected(g):
     return [n
-            for n 
-            in g.nodes(data=True) 
+            for n
+            in g.nodes(data=True)
             if n[1]['epi-state'] == 'Infectious']
 
 def loop(params, g, history, t, copy = True):
@@ -405,6 +464,7 @@ def loop(params, g, history, t, copy = True):
                          t)
 
     g = infections(g,
+                   t,
                    ae,
                    beta_hat = params['beta_hat'],
                    copy = False)
@@ -549,13 +609,26 @@ def route_adjacency_ratio(g):
 
     route_edges = [e for e in edges if 'route' in e[2]]
 
-    adjacent_edges = [e for e in route_edges
-                      if (abs(e[0] - e[1]) % g.graph['N']) <= (g.graph['K'] / 2)]
+    if 'K' in g.graph:
+        adjacent_edges = [e for e in route_edges
+                          if circle_distance(
+                                  e,
+                                  g.graph['N']
+                         ) <= (g.graph['K'] / 2)]
+    else:
+        adjacent_edges = [e for e in route_edges
+                          if square_distance(
+                                  e,
+                                  g.graph['N'],
+                                  g.graph['M']
+                          ) <= 1]
 
     if len(route_edges) > 0:
         return float(len(adjacent_edges)) / len(route_edges)
     else:
         None
+
+
 
 def traced_edges(g):
     edges = g.edges(data=True)
@@ -567,10 +640,70 @@ def traced_edges(g):
         if adoption(g, e) and g.edges[(e[0],e[1])]['c'] > 0.5:
             te += 1
 
-            if circle_distance(e, g.graph['N']) > g.graph['K'] / 2:
-                te_d += 1
-
+            if 'K' in g.graph: # Watts-Strogatz case
+                if circle_distance(e, g.graph['N']) > g.graph['K'] / 2:
+                    te_d += 1
+            else: # 2D lattice case
+                if square_distance(e, g.graph['N'], g.graph['M']) > 1:
+                    te_d += 1
     return te, te_d
+
+def intervals(node_data):
+    if 'exposed-at' not in node_data:
+        exposed_interval = None
+    elif 'infectious-at' in node_data: # normal exposure
+        exposed_interval = node_data['infectious-at'] - node_data['exposed-at']
+    else:
+        exposed_interval = -1 # this is a bug.
+
+
+    eff_infectious_interval = 0
+
+    if 'infectious-at' in node_data:
+        if 'quarantined-at' in node_data:
+            # negative value means quarantined before becoming infectious!
+            eii = node_data['quarantined-at'] - node_data['infectious-at']
+        elif 'recovered-at' in node_data:
+            eii = node_data['recovered-at'] - node_data['infectious-at']
+
+        eff_infectious_interval = eii
+
+    return exposed_interval, eff_infectious_interval
+
+def effective_parameters(g):
+    exposure_intervals = {}
+    eff_infectious_intervals = {}
+
+    # nodes for each group
+    for x, d in g.nodes(data=True):
+        group = d['group'] if 'group' in d else None
+
+        e_interval, ei_interval = intervals(d)
+
+        if e_interval is not None:
+            if group not in exposure_intervals:
+                exposure_intervals[group] = []
+
+            exposure_intervals[group].append(e_interval)
+
+        if ei_interval is not None:
+            if group not in eff_infectious_intervals:
+                eff_infectious_intervals[group] = []
+
+            eff_infectious_intervals[group].append(ei_interval)
+
+    average_exposure_intervals = {
+        group : sum(exposure_intervals[group]) / len(exposure_intervals[group])
+        for group
+        in exposure_intervals
+    }
+    average_eff_infectious_intervals = {
+         group : sum(eff_infectious_intervals[group]) / len(eff_infectious_intervals[group])
+         for group
+         in eff_infectious_intervals
+    }
+
+    return (average_exposure_intervals, average_eff_infectious_intervals)
 
 def data_from_result(
         t,
@@ -581,6 +714,29 @@ def data_from_result(
 ):
     te, te_d = traced_edges(g)
 
+    aei, aeii = effective_parameters(g)
+
+    group_0_adopters = len(
+        [n for n in g.nodes(data=True)
+         if n[1]['group'] == 0 and n[1]['adopter'] == 1])
+    group_1_adopters = len(
+        [n for n in g.nodes(data=True)
+         if n[1]['group'] == 1 and n[1]['adopter'] == 1])
+    group_0_size = len(
+        [n for n in g.nodes(data=True) if n[1]['group'] == 0])
+    group_1_size = len(
+        [n for n in g.nodes(data=True) if n[1]['group'] == 1])
+
+    if group_0_size > 0:
+        group_0_adoption_rate = float(group_0_adopters) / group_0_size
+    else:
+        group_0_adoption_rate = float("nan")
+
+    if group_1_size > 0:
+        group_1_adoption_rate = float(group_1_adopters) / group_1_size
+    else:
+        group_1_adoption_rate = float("nan")
+
     return {
         'time' : t,
         **params,
@@ -588,7 +744,13 @@ def data_from_result(
         "s_final" : s_count[-1],
         "route_adjacent_ratio" : route_adjacency_ratio(g),
         "traced_edges" : te,
-        "traced_edges_distant" : te_d
+        "traced_edges_distant" : te_d,
+        "group 0 adoption rate" : group_0_adoption_rate,
+        "group 1 adoption rate" : group_1_adoption_rate,
+        "avg. exp. interval - group 0" : aei[0] if 0 in aei else None,
+        "avg. exp. interval - group 1" : aei[1] if 1 in aei else None,
+        "avg. eff. inf. interval - group 0" : aeii[0] if 0 in aeii else None,
+        "avg. eff. inf. interval - group 1" : aeii[1] if 1 in aeii else None
     }
 
 def data_from_results(results, case):
@@ -609,7 +771,7 @@ def data_from_all_results(results):
 def susceptible(g):
     return [n
             for n
-            in g.nodes(data=True) 
+            in g.nodes(data=True)
             if n[1]['epi-state'] == 'Susceptible']
 
 def n_infected(g):
@@ -663,9 +825,17 @@ def node_colors(g):
 
     return node_color
 
+def edge_adopter(g, e):
+    e0a = g.nodes[e[0]]['adopter']
+    e1a = g.nodes[e[1]]['adopter']
+
+    return e0a and e1a
+
 def edge_colors(g):
     edge_color = [
-        (e[2]['w'], e[2]['c'], 1 - e[2]['w'] * e[2]['c'] )
+        (e[2]['w'],
+         e[2]['c'] * int(edge_adopter(g, e)) * 0.5,
+         (1 - e[2]['w']) * e[2]['c'] * int(edge_adopter(g, e))) * 0.5
         for e
         in g.edges(data=True)
     ]
