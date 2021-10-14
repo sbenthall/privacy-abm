@@ -137,7 +137,7 @@ def qr_knockout(q, r):
     to be be traced (if they are adopted).
     '''
     def knockout(g, e):
-        # distance between u and v > size of original neighborhood / 2
+        # a distant edge is of any length greater than 1
         if circle_distance(e, g.graph['N']) > g.graph['K'] / 2:
             return 1.0 if np.random.random() < q else 0.0
         else:
@@ -727,7 +727,7 @@ def data_from_result(
     group_1_size = len(
         [n for n in g.nodes(data=True) if n[1]['group'] == 1])
 
-    if group_0_size > 0:
+    if group_0_size > 0.0:
         group_0_adoption_rate = float(group_0_adopters) / group_0_size
     else:
         group_0_adoption_rate = float("nan")
@@ -826,6 +826,12 @@ def node_colors(g):
     return node_color
 
 def edge_adopter(g, e):
+    try:
+        if len(e[2]['c']) > 0:
+            print(e[2]['c'])
+    except:
+        pass
+
     e0a = g.nodes[e[0]]['adopter']
     e1a = g.nodes[e[1]]['adopter']
 
@@ -833,9 +839,9 @@ def edge_adopter(g, e):
 
 def edge_colors(g):
     edge_color = [
-        (e[2]['w'],
-         e[2]['c'] * int(edge_adopter(g, e)) * 0.5,
-         (1 - e[2]['w']) * e[2]['c'] * int(edge_adopter(g, e))) * 0.5
+        ((1.0 if 'route' in e[2] and e[2]['route'] else 0 ),# else e[2]['w']),
+         (e[2]['c'] * float(edge_adopter(g, e)) * 0.5),
+          e[2]['c'] * int(edge_adopter(g, e)) * 0.5)
         for e
         in g.edges(data=True)
     ]
