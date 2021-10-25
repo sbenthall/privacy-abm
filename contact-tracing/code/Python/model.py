@@ -145,6 +145,21 @@ def qr_knockout(q, r):
 
     return knockout
 
+def qr_knockout_lattice(q, r):
+    '''
+    Allows q of distant edges and r of close edges
+    to be be traced (if they are adopted).
+    For a 2D lattice.
+    '''
+    def knockout(g, e):
+        # distance between u and v > size of original neighborhood / 2
+        if square_distance(e, g.graph['N'], g.graph['M']) > 1:
+            return 1.0 if np.random.random() < q else 0.0
+        else:
+            return 1.0 if np.random.random() < r else 0.0
+
+    return knockout
+
 def local_density(g, e):
     u, v, d = e
 
