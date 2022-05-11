@@ -160,6 +160,45 @@ def qr_knockout_lattice(q, r):
 
     return knockout
 
+def qr_knockout_lattice_proportional(g, q, r):
+    '''
+    Preselects proportional number of close and distant edges.
+
+    Allows q of distant edges and r of close edges
+    to be be traced (if they are adopted).
+    For a 2D lattice.
+    '''
+
+    def knockout(g):
+        distant_edges = []
+        close_edges = []
+
+
+        for e in g.edges():
+            if square_distance(e, g.graph['N'], g.graph['M']) > 1:
+                distant_edges.append(e)
+            else:
+                close_edges.append(e)
+
+        random.shuffle(distant_edges)
+        random.shuffle(close_edges)
+
+        num_traced_distant_edges = round(q * len(g.edges()) * g.graph['p'])
+        traced_distant_edges = set(distant_edges[:num_traced_distant_edges])
+
+        num_traced_close_edges = round(r * len(g.edges()) * (1 - g.graph['p']))
+        traced_close_edges = set(close_edges[:num_traced_close_edges])
+
+        def traced(e):
+            if (e[0],e[1]) in traced_distant_edges or (e[0],e[1]) in traced_close_edges:
+                return 1.0
+            else:
+                return 0.0
+
+        return {e : traced(e) for e in g.edges()}
+
+    return knockout
+
 def local_density(g, e):
     u, v, d = e
 
@@ -192,13 +231,15 @@ def initialize_tracing_probability(g, params):
     if type(params['C']) is float:
         nx.set_edge_attributes(g, params['C'], name = 'c')
     elif callable(params['C']):
-        nx.set_edge_attributes(g,
-                               {
-                                   (e[0], e[1]) : params['C'](g, e)
-                                   for e
-                                   in g.edges(data = True)
-                               },
-                               name = 'c')
+        nx.set_edge_attributes(
+            g,
+            # breaking the code for other models...
+            params['C'](g),
+            # (e[0], e[1]) : params['C'](g, e)
+            # for e
+            # in g.edges(data = True)
+            name = 'c'
+            )
     else:
         print("No case found for traCing probability type.")
         pass
@@ -651,6 +692,8 @@ def traced_edges(g):
     te = 0
     te_d = 0
 
+    cs = sum([square_distance(e, g.graph['N'], g.graph['M']) for e in edges if e[2]['c'] > 0.5])
+
     for e in edges:
         if adoption(g, e) and g.edges[(e[0],e[1])]['c'] > 0.5:
             te += 1
@@ -661,6 +704,7 @@ def traced_edges(g):
             else: # 2D lattice case
                 if square_distance(e, g.graph['N'], g.graph['M']) > 1:
                     te_d += 1
+
     return te, te_d
 
 def intervals(node_data):
@@ -756,10 +800,15 @@ def data_from_result(
         'time' : t,
         **params,
         **g.graph,
+        "n_nodes" : len(g.nodes()),
         "s_final" : s_count[-1],
+        "infected_ratio" : (len(g.nodes()) - s_count[-1]) / float(len(g.nodes())),
         "route_adjacent_ratio" : route_adjacency_ratio(g),
         "traced_edges" : te,
         "traced_edges_distant" : te_d,
+        "traced_edges_close" : te - te_d,
+        "traced_edges_ratio" : float(te) / len(g.edges()),
+        "traced_edges_close_ratio" : float(te - te_d + 1) / (te + 1),
         "group 0 adoption rate" : group_0_adoption_rate,
         "group 1 adoption rate" : group_1_adoption_rate,
         "avg. exp. interval - group 0" : aei[0] if 0 in aei else None,
@@ -772,7 +821,7 @@ def data_from_results(results, case):
     return [{**d,
              **{
                  "case" : case,
-                 "infected_ratio" : (d['N'] - d['s_final']) / d['N']
+                 #"infected_ratio" : (d['N'] - d['s_final']) / d['N']
              }}
             for d
             in results[case]]
