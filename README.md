@@ -1,4 +1,4 @@
-# privacy-abm - rsi
+# Simulation Tools and Data Modeling Privacy and Contact Tracing Efficacy
 
 This archive contains code and data used to study "Privacy and Contact Tracing Efficacy" (S. Benthall, E. Hatna, K. Strandburg, J. Epstein, 2022).
 
